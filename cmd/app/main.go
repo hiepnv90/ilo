@@ -26,10 +26,8 @@ import (
 const (
 	flagNameConfig = "config"
 
-	defaultDeadlineDuration = 24 * time.Second
-	gasMultiplierBPS        = 12000 // 1.2
-	gasTipMultiplier        = 2.0
-	gweiDecimals            = 9
+	gasMultiplierBPS = 12000 // 1.2
+	gweiDecimals     = 9
 )
 
 func main() {
