@@ -154,7 +154,7 @@ func makeTrade(
 	rate := ratesResp.Rates[0]
 
 	accountAddress := common.HexToAddress(account.Address)
-	nonce, err := ethClient.PendingNonceAt(ctx, accountAddress)
+	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
 	if err != nil {
 		log.Printf("Fail to get nonce: error=%v", err)
 		return err
