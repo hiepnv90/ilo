@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -25,6 +26,8 @@ type Config struct {
 	SlippageBPS        int       `yaml:"slippage_bps"`
 	PlatformWallet     string    `yaml:"platform_wallet"`
 	GasTipMultiplier   float64   `yaml:"gas_tip_multiplier"`
+	StartTime          time.Time `yaml:"start_time"`
+	GasLimit           int64     `yaml:"gas_limit"`
 	Accounts           []Account `yaml:"accounts"`
 }
 
