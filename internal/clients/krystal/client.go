@@ -64,6 +64,7 @@ func (c *Client) GetAllRates(
 func (c *Client) BuildTx(
 	srcToken, dstToken string, srcAmount, minDestAmount *big.Int,
 	platformWallet, userAddress, hint string, gasPrice *big.Int, nonce uint64,
+	skipBalanceCheck bool,
 ) (BuildTxResponse, error) {
 	u := c.baseURL.JoinPath("swap", "buildTx")
 	q := url.Values{}
@@ -76,6 +77,9 @@ func (c *Client) BuildTx(
 	q.Set("hint", hint)
 	q.Set("gasPrice", bigIntToString(gasPrice))
 	q.Set("nonce", strconv.FormatUint(nonce, 10))
+	if skipBalanceCheck {
+		q.Set("skipBalanceCheck", "true")
+	}
 	u.RawQuery = q.Encode()
 
 	resp, err := c.httpClient.Get(u.String())

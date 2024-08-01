@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/big"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/KyberNetwork/tradinglib/pkg/convert"
@@ -21,13 +20,15 @@ import (
 	"github.com/hiepnv90/ilo/internal/config"
 	"github.com/hiepnv90/ilo/internal/gasprice"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	flagNameConfig = "config"
 
-	gasMultiplierBPS = 12000 // 1.2
+	gasMultiplierBPS = 12_000 // 1.2
 	gweiDecimals     = 9
+	maxGasLimit      = 20_000_000
 )
 
 func main() {
@@ -65,6 +66,12 @@ func runApp(c *cli.Context) error {
 }
 
 func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
+	delay := time.Until(cfg.StartTime)
+	if delay > 0 {
+		log.Printf("Wait %v before starting to make trades\n", delay)
+		time.Sleep(delay)
+	}
+
 	ethClient, err := ethclient.Dial(cfg.NodeRPC)
 	if err != nil {
 		log.Println("Fail to create ethclient:", err)
@@ -84,28 +91,34 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		return err
 	}
 
-	var wg sync.WaitGroup
-	for _, acc := range cfg.Accounts {
-		wg.Add(1)
-		go func(account config.Account) {
-			defer wg.Done()
-
-			err = makeTrade(
-				ethClient, cacheGasPricer, keystore, krystalClient,
-				big.NewInt(cfg.ChainID), account, cfg.InputToken, cfg.OutputToken,
-				cfg.PlatformWallet, cfg.SlippageBPS, cfg.GasTipMultiplier,
-			)
-			if err != nil {
-				log.Printf("Fail to make trade: account=%+v err=%v", account, err)
-			} else {
-				log.Printf("Successfully make trade: %+v", account)
-			}
-		}(acc)
+	var gasLimit uint64
+	if cfg.GasLimit > 0 {
+		gasLimit = uint64(cfg.GasLimit)
+		if gasLimit > maxGasLimit {
+			gasLimit = maxGasLimit
+		}
 	}
 
-	wg.Wait()
+	g, _ := errgroup.WithContext(context.Background())
+	for _, acc := range cfg.Accounts {
+		acc := acc
+		g.Go(func() error {
+			err = makeTrade(
+				ethClient, cacheGasPricer, keystore, krystalClient,
+				big.NewInt(cfg.ChainID), acc, cfg.InputToken, cfg.OutputToken,
+				cfg.PlatformWallet, cfg.SlippageBPS, cfg.GasTipMultiplier, gasLimit,
+			)
+			if err != nil {
+				log.Printf("Fail to make trade: account=%+v err=%v", acc, err)
+				return err
+			}
 
-	return nil
+			log.Printf("Successfully make trade: %+v", acc)
+			return nil
+		})
+	}
+
+	return g.Wait()
 }
 
 func makeTrade(
@@ -120,6 +133,7 @@ func makeTrade(
 	platformWallet string,
 	slippageBPS int,
 	gasTipMultiplier float64,
+	gasLimit uint64,
 ) error {
 	ratesResp, err := krystalClient.GetAllRates(
 		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
@@ -143,7 +157,7 @@ func makeTrade(
 	minDestAmount := applySlippage(rate.Amount, slippageBPS)
 	buildTxResp, err := krystalClient.BuildTx(
 		inputToken, outputToken, account.InputAmount, minDestAmount, platformWallet,
-		account.Address, rate.Hint, nil, nonce,
+		account.Address, rate.Hint, nil, nonce, true,
 	)
 	if err != nil {
 		log.Printf("Fail to build tx: nonce=%d error=%v", nonce, err)
@@ -157,10 +171,14 @@ func makeTrade(
 		Data:  []byte(buildTxResp.TxObject.Data),
 	}
 
-	estimatedGas, err := ethClient.EstimateGas(context.Background(), msg)
-	if err != nil {
-		log.Printf("Fail to estimate gas: error=%v", err)
-		return err
+	if gasLimit == 0 {
+		gasLimit, err = ethClient.EstimateGas(context.Background(), msg)
+		if err != nil {
+			log.Printf("Fail to estimate gas: error=%v", err)
+			return err
+		}
+
+		gasLimit = gasLimit * gasMultiplierBPS / 10_000
 	}
 
 	maxGasPriceGwei, gasTipCapGwei, err := gasPricer.GasPrice(context.Background())
@@ -170,14 +188,13 @@ func makeTrade(
 	}
 	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
 	gasTipCap := convert.MustFloatToWei(gasTipMultiplier*gasTipCapGwei, gweiDecimals)
-	gas := estimatedGas * gasMultiplierBPS / 10000
 
 	tx := &types.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     nonce,
 		GasTipCap: gasTipCap,
 		GasFeeCap: maxGasPrice,
-		Gas:       gas,
+		Gas:       gasLimit,
 		To:        msg.To,
 		Data:      msg.Data,
 		Value:     msg.Value,
