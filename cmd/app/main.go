@@ -30,6 +30,7 @@ const (
 	gasMultiplierBPS = 12_000 // 1.2
 	gweiDecimals     = 9
 	maxGasLimit      = 20_000_000
+	timeWaitForTx    = 20 * time.Second
 )
 
 func main() {
@@ -221,7 +222,7 @@ func makeTrade(
 	}
 
 	// Wait for transaction to be mined
-	receipt, err := ethClient.TransactionReceipt(ctx, signedTx.Hash())
+	receipt, err := waitForTransactionReceipt(ctx, ethClient, signedTx.Hash(), timeWaitForTx)
 	if err != nil {
 		log.Printf("Fail to get transaction receipt: transactionHash=%v error=%v", signedTx.Hash(), err)
 		return err
@@ -235,6 +236,31 @@ func makeTrade(
 	log.Printf("Successfully submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
 
 	return nil
+}
+
+func waitForTransactionReceipt(ctx context.Context, ethClient *ethclient.Client, txHash common.Hash, timeout time.Duration) (*types.Receipt, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		receipt, err := ethClient.TransactionReceipt(ctx, txHash)
+		if err == nil {
+			return receipt, nil
+		}
+		if err != ethereum.NotFound {
+			return nil, fmt.Errorf("error fetching receipt: %v", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("transaction not mined within %v", timeout)
+		case <-ticker.C:
+			continue
+		}
+	}
 }
 
 func getSender(chainID *big.Int, tx *types.Transaction) common.Address {
