@@ -16,11 +16,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/hiepnv90/ilo/internal/clients/krystal"
 	"github.com/hiepnv90/ilo/internal/config"
 	"github.com/hiepnv90/ilo/internal/gasprice"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -135,6 +136,10 @@ func makeTrade(
 	gasTipMultiplier float64,
 	gasLimit uint64,
 ) error {
+	// create a context with timeout 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	ratesResp, err := krystalClient.GetAllRates(
 		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
 	if err != nil {
@@ -148,11 +153,13 @@ func makeTrade(
 	rate := ratesResp.Rates[0]
 
 	accountAddress := common.HexToAddress(account.Address)
-	nonce, err := ethClient.PendingNonceAt(context.Background(), accountAddress)
+	nonce, err := ethClient.PendingNonceAt(ctx, accountAddress)
 	if err != nil {
 		log.Printf("Fail to get nonce: error=%v", err)
 		return err
 	}
+
+	log.Printf("wallet %v current nonce: %d", accountAddress, nonce)
 
 	minDestAmount := applySlippage(rate.Amount, slippageBPS)
 	buildTxResp, err := krystalClient.BuildTx(
@@ -181,7 +188,7 @@ func makeTrade(
 		gasLimit = gasLimit * gasMultiplierBPS / 10_000
 	}
 
-	maxGasPriceGwei, gasTipCapGwei, err := gasPricer.GasPrice(context.Background())
+	maxGasPriceGwei, gasTipCapGwei, err := gasPricer.GasPrice(ctx)
 	if err != nil {
 		log.Printf("Fail to get gas price: error=%v", err)
 		return err
@@ -207,11 +214,24 @@ func makeTrade(
 	}
 
 	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v tx=%+v", account.InputAmount, signedTx.Hash(), buildTxResp.TxObject)
-	err = ethClient.SendTransaction(context.Background(), signedTx)
+	err = ethClient.SendTransaction(ctx, signedTx)
 	if err != nil {
 		log.Printf("Fail to submit transaction: sender=%v error=%v", getSender(chainID, signedTx), err)
 		return err
 	}
+
+	// Wait for transaction to be mined
+	receipt, err := ethClient.TransactionReceipt(ctx, signedTx.Hash())
+	if err != nil {
+		log.Printf("Fail to get transaction receipt: transactionHash=%v error=%v", signedTx.Hash(), err)
+		return err
+	}
+
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		log.Printf("Transaction failed: transactionHash=%v status=%v", signedTx.Hash(), receipt.Status)
+		return errors.New("transaction failed")
+	}
+
 	log.Printf("Successfully submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
 
 	return nil
