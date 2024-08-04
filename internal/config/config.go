@@ -28,6 +28,7 @@ type Config struct {
 	GasTipMultiplier   float64   `yaml:"gas_tip_multiplier"`
 	StartTime          time.Time `yaml:"start_time"`
 	GasLimit           int64     `yaml:"gas_limit"`
+	MinReturnAmount    string    `yaml:"min_return_amount"`
 	Accounts           []Account `yaml:"accounts"`
 }
 

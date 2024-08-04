@@ -101,14 +101,24 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		}
 	}
 
+	var minReturnAmount *big.Int
+	if cfg.MinReturnAmount != "" {
+		amount, ok := new(big.Int).SetString(cfg.MinReturnAmount, 10)
+		if ok {
+			minReturnAmount = amount
+		} else {
+			log.Println("Ignore invalid min_return_amount:", cfg.MinReturnAmount)
+		}
+	}
+
 	g, _ := errgroup.WithContext(context.Background())
 	for _, acc := range cfg.Accounts {
 		acc := acc
 		g.Go(func() error {
 			err = makeTrade(
-				ethClient, cacheGasPricer, keystore, krystalClient,
-				big.NewInt(cfg.ChainID), acc, cfg.InputToken, cfg.OutputToken,
-				cfg.PlatformWallet, cfg.SlippageBPS, cfg.GasTipMultiplier, gasLimit,
+				ethClient, cacheGasPricer, keystore, krystalClient, big.NewInt(cfg.ChainID),
+				acc, cfg.InputToken, cfg.OutputToken, cfg.PlatformWallet, cfg.SlippageBPS,
+				cfg.GasTipMultiplier, gasLimit, minReturnAmount,
 			)
 			if err != nil {
 				log.Printf("Fail to make trade: account=%+v err=%v", acc, err)
@@ -136,6 +146,7 @@ func makeTrade(
 	slippageBPS int,
 	gasTipMultiplier float64,
 	gasLimit uint64,
+	minReturnAmount *big.Int,
 ) error {
 	// create a context with timeout 30s
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -160,9 +171,13 @@ func makeTrade(
 		return err
 	}
 
-	log.Printf("wallet %v current nonce: %d", accountAddress, nonce)
-
 	minDestAmount := applySlippage(rate.Amount, slippageBPS)
+	if minReturnAmount != nil && minReturnAmount.Cmp(minDestAmount) > 0 {
+		minDestAmount.Set(minReturnAmount)
+	}
+
+	log.Printf("Build transaction: account=%s nonce=%d inputToken=%s outputToken=%s inputAmount=%v minReturnAmount=%d",
+		account.Address, nonce, inputToken, outputToken, account.InputAmount, minDestAmount)
 	buildTxResp, err := krystalClient.BuildTx(
 		inputToken, outputToken, account.InputAmount, minDestAmount, platformWallet,
 		account.Address, rate.Hint, nil, nonce, true,
