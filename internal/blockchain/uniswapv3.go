@@ -44,3 +44,35 @@ func EncodeSwap(
 		},
 	)
 }
+
+type ExactInputSingle02Params struct {
+	TokenIn           common.Address
+	TokenOut          common.Address
+	Fee               *big.Int
+	Recipient         common.Address
+	AmountIn          *big.Int
+	AmountOutMinimum  *big.Int
+	SqrtPriceLimitX96 *big.Int
+}
+
+func EncodeSwap02(
+	inputToken common.Address,
+	outputToken common.Address,
+	recipient common.Address,
+	inputAmount *big.Int,
+	minOutputAmount *big.Int,
+	fee *big.Int,
+) ([]byte, error) {
+	return uniswapV3Router02ABI.Pack(
+		methodExactInputSingle,
+		ExactInputSingle02Params{
+			TokenIn:           inputToken,
+			TokenOut:          outputToken,
+			Fee:               fee,
+			Recipient:         recipient,
+			AmountIn:          inputAmount,
+			AmountOutMinimum:  minOutputAmount,
+			SqrtPriceLimitX96: big.NewInt(0),
+		},
+	)
+}

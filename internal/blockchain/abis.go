@@ -7,7 +7,10 @@ import (
 )
 
 //nolint:gochecknoglobals
-var uniswapV3RouterABI abi.ABI
+var (
+	uniswapV3RouterABI   abi.ABI
+	uniswapV3Router02ABI abi.ABI
+)
 
 //nolint:gochecknoinits
 func init() {
@@ -16,6 +19,7 @@ func init() {
 		data []byte
 	}{
 		{&uniswapV3RouterABI, uniswapV3RouterJSON},
+		{&uniswapV3Router02ABI, uniswapV3Router02JSON},
 	}
 
 	for _, b := range builder {
