@@ -1,16 +1,16 @@
 chain_id: 1
 node_rpc: "https://rpc.flashbots.net/fast"
 gas_price_endpoint: "https://gas-api.metaswap.codefi.network/networks/1"
-krystal_api_endpoint: "https://api.krystal.app/ethereum/v2"
 keystore_dir: "keystore"
+router_address: "0xe592427a0aece92de3edee1f18e0157c05861564"
 input_token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" # ETH
 output_token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" # USDC
-platform_wallet: "0x168E4c3AC8d89B00958B6bE6400B066f0347DDc9" # Krystal Wallet
-slippage_bps: 100 # 1%
+fee_tier: 500 # 0.05%
 gas_tip_multiplier: 1.0
 #start_time: "2024-08-01T00:00:00Z"
-#gas_limit: 500000
-#min_return_amount: 9000000000 # 9000 USDC
+#gas_limit: 300000
+#min_return_amount: 7000000000 # 7000 USDC
+weth: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 accounts:
   - address: "0x0000000000000000000001111111111111111111"
     passphrase: "123456"

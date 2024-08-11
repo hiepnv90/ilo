@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/KyberNetwork/tradinglib/pkg/convert"
@@ -14,12 +15,13 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/hiepnv90/ilo/internal/clients/krystal"
+	"github.com/hiepnv90/ilo/internal/blockchain"
 	"github.com/hiepnv90/ilo/internal/config"
 	"github.com/hiepnv90/ilo/internal/gasprice"
 )
@@ -27,10 +29,12 @@ import (
 const (
 	flagNameConfig = "config"
 
-	gasMultiplierBPS = 12_000 // 1.2
-	gweiDecimals     = 9
-	maxGasLimit      = 20_000_000
-	timeWaitForTx    = 20 * time.Second
+	gasMultiplierBPS    = 12_000 // 1.2
+	gweiDecimals        = 9
+	maxGasLimit         = 20_000_000
+	defaultDeadlineTime = 24 * time.Second
+
+	eth = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 )
 
 func main() {
@@ -87,12 +91,6 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 	}
 	cacheGasPricer := gasprice.NewCacheGasPricer(metamaskGasPricer, time.Second)
 
-	krystalClient, err := krystal.NewClient(cfg.KrystalAPIEndpoint, nil)
-	if err != nil {
-		log.Println("Fail to create krystal client:", err)
-		return err
-	}
-
 	var gasLimit uint64
 	if cfg.GasLimit > 0 {
 		gasLimit = uint64(cfg.GasLimit)
@@ -109,6 +107,8 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		} else {
 			log.Println("Ignore invalid min_return_amount:", cfg.MinReturnAmount)
 		}
+	} else {
+		minReturnAmount = big.NewInt(0)
 	}
 
 	g, _ := errgroup.WithContext(context.Background())
@@ -116,9 +116,10 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		acc := acc
 		g.Go(func() error {
 			err = makeTrade(
-				ethClient, cacheGasPricer, keystore, krystalClient, big.NewInt(cfg.ChainID),
-				acc, cfg.InputToken, cfg.OutputToken, cfg.PlatformWallet, cfg.SlippageBPS,
-				cfg.GasTipMultiplier, gasLimit, minReturnAmount,
+				ethClient, cacheGasPricer, keystore, big.NewInt(cfg.ChainID), acc,
+				strings.ToLower(cfg.InputToken), strings.ToLower(cfg.OutputToken),
+				cfg.GasTipMultiplier, gasLimit, minReturnAmount, big.NewInt(cfg.FeeTier),
+				cfg.RouterAddress, strings.ToLower(cfg.Weth),
 			)
 			if err != nil {
 				log.Printf("Fail to make trade: account=%+v err=%v", acc, err)
@@ -137,67 +138,57 @@ func makeTrade(
 	ethClient *ethclient.Client,
 	gasPricer gasprice.GasPricer,
 	keystore *keystore.KeyStore,
-	krystalClient *krystal.Client,
 	chainID *big.Int,
 	account config.Account,
 	inputToken string,
 	outputToken string,
-	platformWallet string,
-	slippageBPS int,
 	gasTipMultiplier float64,
 	gasLimit uint64,
 	minReturnAmount *big.Int,
+	feeTier *big.Int,
+	routerAddress string,
+	weth string,
 ) error {
 	// create a context with timeout 30s
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ratesResp, err := krystalClient.GetAllRates(
-		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
-	if err != nil {
-		log.Printf("Fail to get route: error=%v", err)
-		return err
-	}
-
-	if len(ratesResp.Rates) == 0 {
-		return errors.New("no rate return")
-	}
-	rate := ratesResp.Rates[0]
-
 	accountAddress := common.HexToAddress(account.Address)
-	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
-	if err != nil {
-		log.Printf("Fail to get nonce: error=%v", err)
-		return err
-	}
+	tokenIn := toTokenAddress(inputToken, weth)
+	tokenOut := toTokenAddress(outputToken, weth)
 
-	minDestAmount := applySlippage(rate.Amount, slippageBPS)
-	if minReturnAmount != nil && minReturnAmount.Cmp(minDestAmount) > 0 {
-		minDestAmount.Set(minReturnAmount)
-	}
-
-	log.Printf("Build transaction: account=%s nonce=%d inputToken=%s outputToken=%s inputAmount=%v minReturnAmount=%d",
-		account.Address, nonce, inputToken, outputToken, account.InputAmount, minDestAmount)
-	buildTxResp, err := krystalClient.BuildTx(
-		inputToken, outputToken, account.InputAmount, minDestAmount, platformWallet,
-		account.Address, rate.Hint, nil, nonce, true,
+	var (
+		err         error
+		encodedData []byte
 	)
+	if isEthNetwork(chainID) {
+		encodedData, err = blockchain.EncodeSwap(
+			tokenIn, tokenOut, accountAddress, account.InputAmount, minReturnAmount,
+			time.Now().Add(defaultDeadlineTime).Unix(), feeTier)
+	} else {
+		encodedData, err = blockchain.EncodeSwap02(
+			tokenIn, tokenOut, accountAddress, account.InputAmount, minReturnAmount, feeTier)
+	}
 	if err != nil {
-		log.Printf("Fail to build tx: nonce=%d error=%v", nonce, err)
+		log.Println("Fail to encode swap:", err)
 		return err
 	}
 
+	toAddr := common.HexToAddress(routerAddress)
 	msg := ethereum.CallMsg{
-		From:  buildTxResp.TxObject.From,
-		To:    &buildTxResp.TxObject.To,
-		Value: buildTxResp.TxObject.Value.ToInt(),
-		Data:  []byte(buildTxResp.TxObject.Data),
+		From: accountAddress,
+		To:   &toAddr,
+		Data: encodedData,
+	}
+	if isEth(inputToken) {
+		msg.Value = account.InputAmount
 	}
 
 	if gasLimit == 0 {
 		gasLimit, err = ethClient.EstimateGas(context.Background(), msg)
 		if err != nil {
-			log.Printf("Fail to estimate gas: error=%v", err)
+			log.Printf("Fail to estimate gas: from=%v to=%v data=%s error=%v",
+				msg.From, msg.To, hexutil.Encode(msg.Data), err)
 			return err
 		}
 
@@ -212,6 +203,12 @@ func makeTrade(
 	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
 	gasTipCap := convert.MustFloatToWei(gasTipMultiplier*gasTipCapGwei, gweiDecimals)
 
+	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
+	if err != nil {
+		log.Printf("Fail to get nonce: error=%v", err)
+		return err
+	}
+
 	tx := &types.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     nonce,
@@ -225,11 +222,13 @@ func makeTrade(
 	signedTx, err := keystore.SignTxWithPassphrase(
 		accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
 	if err != nil {
-		fmt.Printf("Fail to sign transaction: tx=%+v error=%v", buildTxResp.TxObject, err)
+		logTx := *tx
+		logTx.Data = nil
+		fmt.Printf("Fail to sign transaction: tx=%+v data=%s error=%v", logTx, hexutil.Encode(tx.Data), err)
 		return err
 	}
 
-	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v tx=%+v", account.InputAmount, signedTx.Hash(), buildTxResp.TxObject)
+	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
 	err = ethClient.SendTransaction(ctx, signedTx)
 	if err != nil {
 		log.Printf("Fail to submit transaction: sender=%v error=%v", getSender(chainID, signedTx), err)
@@ -237,7 +236,7 @@ func makeTrade(
 	}
 
 	// Wait for transaction to be mined
-	receipt, err := waitForTransactionReceipt(ctx, ethClient, signedTx.Hash(), timeWaitForTx)
+	receipt, err := waitForTransactionReceipt(ctx, ethClient, signedTx.Hash(), defaultDeadlineTime)
 	if err != nil {
 		log.Printf("Fail to get transaction receipt: transactionHash=%v error=%v", signedTx.Hash(), err)
 		return err
@@ -288,23 +287,18 @@ func getSender(chainID *big.Int, tx *types.Transaction) common.Address {
 	return sender
 }
 
-func applySlippage(amount string, slippageBPS int) *big.Int {
-	if amount == "" {
-		return nil
+func isEth(token string) bool {
+	return token == eth
+}
+
+func toTokenAddress(token string, weth string) common.Address {
+	if isEth(token) {
+		return common.HexToAddress(weth)
 	}
 
-	amountBig, ok := new(big.Int).SetString(amount, 10)
-	if !ok {
-		panic(fmt.Errorf("invalid amount: %s", amount))
-	}
+	return common.HexToAddress(token)
+}
 
-	const maxBPS = 10000
-	if slippageBPS > maxBPS {
-		return big.NewInt(0)
-	}
-
-	minAmount := new(big.Int).Mul(amountBig, big.NewInt(int64(maxBPS-slippageBPS)))
-	minAmount.Div(minAmount, big.NewInt(maxBPS))
-
-	return minAmount
+func isEthNetwork(chainID *big.Int) bool {
+	return chainID.Uint64() == 1
 }
