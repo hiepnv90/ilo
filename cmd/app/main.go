@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -222,11 +223,29 @@ func makeTrade(
 		Data:      msg.Data,
 		Value:     msg.Value,
 	}
-	signedTx, err := keystore.SignTxWithPassphrase(
-		accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
-	if err != nil {
-		fmt.Printf("Fail to sign transaction: tx=%+v error=%v", buildTxResp.TxObject, err)
-		return err
+
+	var signedTx *types.Transaction
+	if account.PrivKey != "" {
+		// TO sign transaction using privKey
+		priv, err := crypto.HexToECDSA(account.PrivKey)
+		if err != nil {
+			log.Println("invalid private key")
+			return err
+		}
+
+		signer := types.LatestSignerForChainID(chainID)
+		signedTx, err = types.SignTx(types.NewTx(tx), signer, priv)
+		if err != nil {
+			fmt.Printf("Fail to sign transaction use privKey: tx=%+v error=%v", buildTxResp.TxObject, err)
+			return err
+		}
+	} else {
+		signedTx, err = keystore.SignTxWithPassphrase(
+			accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
+		if err != nil {
+			fmt.Printf("Fail to sign transaction: tx=%+v error=%v", buildTxResp.TxObject, err)
+			return err
+		}
 	}
 
 	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v tx=%+v", account.InputAmount, signedTx.Hash(), buildTxResp.TxObject)
