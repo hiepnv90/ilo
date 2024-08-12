@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log"
@@ -153,6 +154,22 @@ func makeTrade(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	var priv *ecdsa.PrivateKey
+	var err error
+	if account.PrivKey != "" {
+		priv, err = crypto.HexToECDSA(account.PrivKey)
+		if err != nil {
+			log.Println("invalid private key")
+			return err
+		}
+		publicKeyECDSA, ok := priv.Public().(*ecdsa.PublicKey)
+		if !ok {
+			return errors.New("failed to get public key")
+		}
+		tmpAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+		account.Address = tmpAddress.Hex()
+	}
+
 	ratesResp, err := krystalClient.GetAllRates(
 		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
 	if err != nil {
@@ -225,14 +242,8 @@ func makeTrade(
 	}
 
 	var signedTx *types.Transaction
-	if account.PrivKey != "" {
+	if priv != nil {
 		// TO sign transaction using privKey
-		priv, err := crypto.HexToECDSA(account.PrivKey)
-		if err != nil {
-			log.Println("invalid private key")
-			return err
-		}
-
 		signer := types.LatestSignerForChainID(chainID)
 		signedTx, err = types.SignTx(types.NewTx(tx), signer, priv)
 		if err != nil {
