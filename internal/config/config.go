@@ -13,6 +13,8 @@ type Account struct {
 	Address     string   `yaml:"address"`
 	Passphrase  string   `yaml:"passphrase"`
 	InputAmount *big.Int `yaml:"amount"`
+
+	PrivKey string `yaml:"priv_key"` // optional, set this empty to use keystore
 }
 
 type Config struct {

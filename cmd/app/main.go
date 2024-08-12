@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -152,6 +154,22 @@ func makeTrade(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	var priv *ecdsa.PrivateKey
+	var err error
+	if account.PrivKey != "" {
+		priv, err = crypto.HexToECDSA(account.PrivKey)
+		if err != nil {
+			log.Println("invalid private key")
+			return err
+		}
+		publicKeyECDSA, ok := priv.Public().(*ecdsa.PublicKey)
+		if !ok {
+			return errors.New("failed to get public key")
+		}
+		tmpAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+		account.Address = tmpAddress.Hex()
+	}
+
 	ratesResp, err := krystalClient.GetAllRates(
 		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
 	if err != nil {
@@ -222,11 +240,23 @@ func makeTrade(
 		Data:      msg.Data,
 		Value:     msg.Value,
 	}
-	signedTx, err := keystore.SignTxWithPassphrase(
-		accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
-	if err != nil {
-		fmt.Printf("Fail to sign transaction: tx=%+v error=%v", buildTxResp.TxObject, err)
-		return err
+
+	var signedTx *types.Transaction
+	if priv != nil {
+		// TO sign transaction using privKey
+		signer := types.LatestSignerForChainID(chainID)
+		signedTx, err = types.SignTx(types.NewTx(tx), signer, priv)
+		if err != nil {
+			fmt.Printf("Fail to sign transaction use privKey: tx=%+v error=%v", buildTxResp.TxObject, err)
+			return err
+		}
+	} else {
+		signedTx, err = keystore.SignTxWithPassphrase(
+			accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
+		if err != nil {
+			fmt.Printf("Fail to sign transaction: tx=%+v error=%v", buildTxResp.TxObject, err)
+			return err
+		}
 	}
 
 	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v tx=%+v", account.InputAmount, signedTx.Hash(), buildTxResp.TxObject)
