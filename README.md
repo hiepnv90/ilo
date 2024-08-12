@@ -27,6 +27,7 @@ accounts:
   - address: "0x0000000000000000000001111111111111111111"
     passphrase: "123456"
     amount: 3000000000000000000 # 3 ETH
+    priv_key: "" # optional, set this empty to use keystore
 ```
 
 Example keystore file:
