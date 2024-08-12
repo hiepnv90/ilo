@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -99,18 +101,6 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		}
 	}
 
-	var minReturnAmount *big.Int
-	if cfg.MinReturnAmount != "" {
-		amount, ok := new(big.Int).SetString(cfg.MinReturnAmount, 10)
-		if ok {
-			minReturnAmount = amount
-		} else {
-			log.Println("Ignore invalid min_return_amount:", cfg.MinReturnAmount)
-		}
-	} else {
-		minReturnAmount = big.NewInt(0)
-	}
-
 	g, _ := errgroup.WithContext(context.Background())
 	for _, acc := range cfg.Accounts {
 		acc := acc
@@ -118,7 +108,7 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 			err = makeTrade(
 				ethClient, cacheGasPricer, keystore, big.NewInt(cfg.ChainID), acc,
 				strings.ToLower(cfg.InputToken), strings.ToLower(cfg.OutputToken),
-				cfg.GasTipMultiplier, gasLimit, minReturnAmount, big.NewInt(cfg.FeeTier),
+				cfg.GasTipMultiplier, gasLimit, cfg.MinReturnAmount, big.NewInt(cfg.FeeTier),
 				cfg.RouterAddress, strings.ToLower(cfg.Weth),
 			)
 			if err != nil {
@@ -156,18 +146,41 @@ func makeTrade(
 	accountAddress := common.HexToAddress(account.Address)
 	tokenIn := toTokenAddress(inputToken, weth)
 	tokenOut := toTokenAddress(outputToken, weth)
+	if account.MinReturnAmount != nil {
+		minReturnAmount = account.MinReturnAmount
+	} else if minReturnAmount == nil {
+		minReturnAmount = big.NewInt(0)
+	}
 
-	var (
-		err         error
-		encodedData []byte
-	)
+	var priv *ecdsa.PrivateKey
+	var err error
+	if account.PrivKey != "" {
+		priv, err = crypto.HexToECDSA(account.PrivKey)
+		if err != nil {
+			log.Println("invalid private key")
+			return err
+		}
+		publicKeyECDSA, ok := priv.Public().(*ecdsa.PublicKey)
+		if !ok {
+			return errors.New("failed to get public key")
+		}
+		tmpAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+		account.Address = tmpAddress.Hex()
+	}
+
+	recipient := accountAddress
+	if account.Recipient != "" {
+		recipient = common.HexToAddress(account.Recipient)
+	}
+
+	var encodedData []byte
 	if isEthNetwork(chainID) {
 		encodedData, err = blockchain.EncodeSwap(
-			tokenIn, tokenOut, accountAddress, account.InputAmount, minReturnAmount,
+			tokenIn, tokenOut, recipient, account.InputAmount, minReturnAmount,
 			time.Now().Add(defaultDeadlineTime).Unix(), feeTier)
 	} else {
 		encodedData, err = blockchain.EncodeSwap02(
-			tokenIn, tokenOut, accountAddress, account.InputAmount, minReturnAmount, feeTier)
+			tokenIn, tokenOut, recipient, account.InputAmount, minReturnAmount, feeTier)
 	}
 	if err != nil {
 		log.Println("Fail to encode swap:", err)
@@ -200,7 +213,7 @@ func makeTrade(
 		log.Printf("Fail to get gas price: error=%v", err)
 		return err
 	}
-	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+	maxGasPrice := gasPriceWithCap(gasLimit, maxGasPriceGwei, account.MaxGasFee)
 	gasTipCap := convert.MustFloatToWei(gasTipMultiplier*gasTipCapGwei, gweiDecimals)
 
 	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
@@ -219,13 +232,29 @@ func makeTrade(
 		Data:      msg.Data,
 		Value:     msg.Value,
 	}
-	signedTx, err := keystore.SignTxWithPassphrase(
-		accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
-	if err != nil {
-		logTx := *tx
-		logTx.Data = nil
-		fmt.Printf("Fail to sign transaction: tx=%+v data=%s error=%v", logTx, hexutil.Encode(tx.Data), err)
-		return err
+
+	var signedTx *types.Transaction
+	if priv != nil {
+		// TO sign transaction using privKey
+		signer := types.LatestSignerForChainID(chainID)
+		signedTx, err = types.SignTx(types.NewTx(tx), signer, priv)
+		if err != nil {
+			logTx := *tx
+			logTx.Data = nil
+			log.Printf("Fail to sign transaction use privKey: tx=%+v data=%s error=%v",
+				logTx, hexutil.Encode(tx.Data), err)
+			return err
+		}
+	} else {
+		signedTx, err = keystore.SignTxWithPassphrase(
+			accounts.Account{Address: accountAddress}, account.Passphrase, types.NewTx(tx), chainID)
+		if err != nil {
+			logTx := *tx
+			logTx.Data = nil
+			log.Printf("Fail to sign transaction: tx=%+v data=%s error=%v",
+				logTx, hexutil.Encode(tx.Data), err)
+			return err
+		}
 	}
 
 	log.Printf("Submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
@@ -301,4 +330,23 @@ func toTokenAddress(token string, weth string) common.Address {
 
 func isEthNetwork(chainID *big.Int) bool {
 	return chainID.Uint64() == 1
+}
+
+func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.Int) *big.Int {
+	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+	if maxGasFee == nil {
+		return maxGasPrice
+	}
+
+	require := new(big.Int).Mul(maxGasPrice, new(big.Int).SetUint64(gasLimit))
+	if require.Cmp(maxGasFee) <= 0 {
+		return maxGasPrice
+	}
+
+	newGasPrice := new(big.Int).Div(new(big.Int).Mul(maxGasPrice, maxGasFee), require)
+
+	log.Printf("Gas fee is too high, adjust maxGasPrice: require=%v max=%v old=%v new=%v\n",
+		require, maxGasFee, maxGasPrice, newGasPrice)
+
+	return newGasPrice
 }

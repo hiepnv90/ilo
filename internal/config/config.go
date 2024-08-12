@@ -10,9 +10,14 @@ import (
 )
 
 type Account struct {
-	Address     string   `yaml:"address"`
-	Passphrase  string   `yaml:"passphrase"`
-	InputAmount *big.Int `yaml:"amount"`
+	Address         string   `yaml:"address"`
+	Passphrase      string   `yaml:"passphrase"`
+	InputAmount     *big.Int `yaml:"amount"`
+	Recipient       string   `yaml:"recipient"`
+	MaxGasFee       *big.Int `yaml:"max_gas_fee"`
+	MinReturnAmount *big.Int `yaml:"min_return_amount"`
+
+	PrivKey string `yaml:"priv_key"` // optional, set this empty to use keystore
 }
 
 type Config struct {
@@ -27,7 +32,7 @@ type Config struct {
 	GasTipMultiplier float64   `yaml:"gas_tip_multiplier"`
 	StartTime        time.Time `yaml:"start_time"`
 	GasLimit         int64     `yaml:"gas_limit"`
-	MinReturnAmount  string    `yaml:"min_return_amount"`
+	MinReturnAmount  *big.Int  `yaml:"min_return_amount"`
 	Weth             string    `yaml:"weth"`
 	Accounts         []Account `yaml:"accounts"`
 }
