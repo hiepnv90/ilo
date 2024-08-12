@@ -9,10 +9,13 @@ platform_wallet: "0x168E4c3AC8d89B00958B6bE6400B066f0347DDc9" # Krystal Wallet
 slippage_bps: 100 # 1%
 gas_tip_multiplier: 1.0
 #start_time: "2024-08-01T00:00:00Z"
-#gas_limit: 500000
-#min_return_amount: 9000000000 # 9000 USDC
+gas_limit: 400000
+#min_return_amount: 10000000000 # 10000 USDC
 accounts:
   - address: "0x0000000000000000000001111111111111111111"
     passphrase: "123456"
-    amount: 3000000000000000000 # 3 ETH
-    priv_key: ""
+    amount: 4000000000000000000 # 4 ETH
+    #priv_key: "" # optional
+    #recipient: "" # recipient wallet, default is account address.
+    max_gas_fee: 200000000000000000 # 0.2 ETH, default is unlimitted.
+    #min_return_amount: 12000000000 # 12000 USDC, if omitted, use global value set above.
