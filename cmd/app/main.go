@@ -344,12 +344,15 @@ func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.In
 		return maxGasPrice
 	}
 
-	gasFee := new(big.Int).Mul(maxGasPrice, new(big.Int).SetUint64(gasLimit))
-	if gasFee.Cmp(maxGasFee) <= 0 {
+	require := new(big.Int).Mul(maxGasPrice, new(big.Int).SetUint64(gasLimit))
+	if require.Cmp(maxGasFee) <= 0 {
 		return maxGasPrice
 	}
 
-	log.Printf("Gas fee is too high, reduce gas price: require=%v max=%v\n", gasFee, maxGasFee)
+	newGasPrice := new(big.Int).Div(new(big.Int).Mul(maxGasPrice, maxGasFee), require)
 
-	return new(big.Int).Div(new(big.Int).Mul(maxGasPrice, gasFee), maxGasFee)
+	log.Printf("Gas fee is too high, adjust maxGasPrice: require=%v max=%v old=%v new=%v\n",
+		require, maxGasFee, maxGasPrice, newGasPrice)
+
+	return newGasPrice
 }
