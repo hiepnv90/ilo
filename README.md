@@ -28,6 +28,9 @@ accounts:
     passphrase: "123456"
     amount: 3000000000000000000 # 3 ETH
     priv_key: "" # optional, set this empty to use keystore
+    #recipient: "" # recipient wallet, default is account address.
+    max_gas_fee: 200000000000000000 # 0.2 ETH, default is unlimitted.
+    #min_return_amount: 12000000000 # 12000 USDC, if omitted, use global value set above.
 ```
 
 Example keystore file:

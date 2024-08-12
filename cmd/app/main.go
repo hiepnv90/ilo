@@ -103,16 +103,6 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 		}
 	}
 
-	var minReturnAmount *big.Int
-	if cfg.MinReturnAmount != "" {
-		amount, ok := new(big.Int).SetString(cfg.MinReturnAmount, 10)
-		if ok {
-			minReturnAmount = amount
-		} else {
-			log.Println("Ignore invalid min_return_amount:", cfg.MinReturnAmount)
-		}
-	}
-
 	g, _ := errgroup.WithContext(context.Background())
 	for _, acc := range cfg.Accounts {
 		acc := acc
@@ -120,7 +110,7 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 			err = makeTrade(
 				ethClient, cacheGasPricer, keystore, krystalClient, big.NewInt(cfg.ChainID),
 				acc, cfg.InputToken, cfg.OutputToken, cfg.PlatformWallet, cfg.SlippageBPS,
-				cfg.GasTipMultiplier, gasLimit, minReturnAmount,
+				cfg.GasTipMultiplier, gasLimit, cfg.MinReturnAmount,
 			)
 			if err != nil {
 				log.Printf("Fail to make trade: account=%+v err=%v", acc, err)
@@ -154,6 +144,10 @@ func makeTrade(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	if account.MinReturnAmount != nil {
+		minReturnAmount = account.MinReturnAmount
+	}
+
 	var priv *ecdsa.PrivateKey
 	var err error
 	if account.PrivKey != "" {
@@ -170,8 +164,20 @@ func makeTrade(
 		account.Address = tmpAddress.Hex()
 	}
 
+	accountAddress := common.HexToAddress(account.Address)
+	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
+	if err != nil {
+		log.Printf("Fail to get nonce: error=%v", err)
+		return err
+	}
+
+	recipient := account.Address
+	if account.Recipient != "" {
+		recipient = account.Recipient
+	}
+
 	ratesResp, err := krystalClient.GetAllRates(
-		inputToken, outputToken, account.InputAmount, platformWallet, account.Address)
+		inputToken, outputToken, account.InputAmount, platformWallet, recipient)
 	if err != nil {
 		log.Printf("Fail to get route: error=%v", err)
 		return err
@@ -182,13 +188,6 @@ func makeTrade(
 	}
 	rate := ratesResp.Rates[0]
 
-	accountAddress := common.HexToAddress(account.Address)
-	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
-	if err != nil {
-		log.Printf("Fail to get nonce: error=%v", err)
-		return err
-	}
-
 	minDestAmount := applySlippage(rate.Amount, slippageBPS)
 	if minReturnAmount != nil && minReturnAmount.Cmp(minDestAmount) > 0 {
 		minDestAmount.Set(minReturnAmount)
@@ -198,7 +197,7 @@ func makeTrade(
 		account.Address, nonce, inputToken, outputToken, account.InputAmount, minDestAmount)
 	buildTxResp, err := krystalClient.BuildTx(
 		inputToken, outputToken, account.InputAmount, minDestAmount, platformWallet,
-		account.Address, rate.Hint, nil, nonce, true,
+		recipient, rate.Hint, nil, nonce, true,
 	)
 	if err != nil {
 		log.Printf("Fail to build tx: nonce=%d error=%v", nonce, err)
@@ -227,7 +226,7 @@ func makeTrade(
 		log.Printf("Fail to get gas price: error=%v", err)
 		return err
 	}
-	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+	maxGasPrice := gasPriceWithCap(gasLimit, maxGasPriceGwei, account.MaxGasFee)
 	gasTipCap := convert.MustFloatToWei(gasTipMultiplier*gasTipCapGwei, gweiDecimals)
 
 	tx := &types.DynamicFeeTx{
@@ -337,4 +336,23 @@ func applySlippage(amount string, slippageBPS int) *big.Int {
 	minAmount.Div(minAmount, big.NewInt(maxBPS))
 
 	return minAmount
+}
+
+func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.Int) *big.Int {
+	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+	if maxGasFee == nil {
+		return maxGasPrice
+	}
+
+	require := new(big.Int).Mul(maxGasPrice, new(big.Int).SetUint64(gasLimit))
+	if require.Cmp(maxGasFee) <= 0 {
+		return maxGasPrice
+	}
+
+	newGasPrice := new(big.Int).Div(new(big.Int).Mul(maxGasPrice, maxGasFee), require)
+
+	log.Printf("Gas fee is too high, adjust maxGasPrice: require=%v max=%v old=%v new=%v\n",
+		require, maxGasFee, maxGasPrice, newGasPrice)
+
+	return newGasPrice
 }
