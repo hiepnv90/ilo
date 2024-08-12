@@ -173,15 +173,8 @@ func makeTrade(
 		recipient = common.HexToAddress(account.Recipient)
 	}
 
-	var encodedData []byte
-	if isEthNetwork(chainID) {
-		encodedData, err = blockchain.EncodeSwap(
-			tokenIn, tokenOut, recipient, account.InputAmount, minReturnAmount,
-			time.Now().Add(defaultDeadlineTime).Unix(), feeTier)
-	} else {
-		encodedData, err = blockchain.EncodeSwap02(
-			tokenIn, tokenOut, recipient, account.InputAmount, minReturnAmount, feeTier)
-	}
+	encodedData, err := blockchain.EncodeSwap02(
+		tokenIn, tokenOut, recipient, account.InputAmount, minReturnAmount, feeTier)
 	if err != nil {
 		log.Println("Fail to encode swap:", err)
 		return err
@@ -326,10 +319,6 @@ func toTokenAddress(token string, weth string) common.Address {
 	}
 
 	return common.HexToAddress(token)
-}
-
-func isEthNetwork(chainID *big.Int) bool {
-	return chainID.Uint64() == 1
 }
 
 func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.Int) *big.Int {

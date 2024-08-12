@@ -14,7 +14,7 @@ chain_id: 1
 node_rpc: "https://rpc.flashbots.net/fast"
 gas_price_endpoint: "https://gas-api.metaswap.codefi.network/networks/1"
 keystore_dir: "keystore"
-router_address: "0xe592427a0aece92de3edee1f18e0157c05861564" # Uniswap v3 router address
+router_address: "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45" # Uniswap v3 router address
 input_token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" # ETH
 output_token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" # USDC
 fee_tier: 500 # 0.05%, fee tier of uniswap v3 pool
