@@ -339,20 +339,9 @@ func applySlippage(amount string, slippageBPS int) *big.Int {
 }
 
 func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.Int) *big.Int {
-	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
 	if maxGasFee == nil {
-		return maxGasPrice
+		return convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
 	}
 
-	require := new(big.Int).Mul(maxGasPrice, new(big.Int).SetUint64(gasLimit))
-	if require.Cmp(maxGasFee) <= 0 {
-		return maxGasPrice
-	}
-
-	newGasPrice := new(big.Int).Div(new(big.Int).Mul(maxGasPrice, maxGasFee), require)
-
-	log.Printf("Gas fee is too high, adjust maxGasPrice: require=%v max=%v old=%v new=%v\n",
-		require, maxGasFee, maxGasPrice, newGasPrice)
-
-	return newGasPrice
+	return new(big.Int).Div(maxGasFee, new(big.Int).SetUint64(gasLimit))
 }
