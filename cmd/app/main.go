@@ -343,7 +343,7 @@ func gasPriceWithCap(
 ) (*big.Int, *big.Int) {
 	if maxGasFee != nil {
 		maxGasPrice := new(big.Int).Div(maxGasFee, new(big.Int).SetUint64(gasLimit))
-		return maxGasPrice, maxGasPrice
+		return maxGasPrice, new(big.Int).Set(maxGasPrice)
 	}
 
 	if maxGasPriceGwei < gasTipCapGwei {
