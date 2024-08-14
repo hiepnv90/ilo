@@ -29,7 +29,7 @@ accounts:
     amount: 3000000000000000000 # 3 ETH
     priv_key: "" # optional, set this empty to use keystore
     #recipient: "" # recipient wallet, default is account address.
-    max_gas_fee: 200000000000000000 # 0.2 ETH, default is unlimitted.
+    max_gas_fee: 200000000000000000 # 0.2 ETH, default is estimated from metamask API.
     #min_return_amount: 12000000000 # 12000 USDC, if omitted, use global value set above.
 ```
 
