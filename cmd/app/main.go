@@ -206,8 +206,8 @@ func makeTrade(
 		log.Printf("Fail to get gas price: error=%v", err)
 		return err
 	}
-	maxGasPrice := gasPriceWithCap(gasLimit, maxGasPriceGwei, account.MaxGasFee)
-	gasTipCap := convert.MustFloatToWei(gasTipMultiplier*gasTipCapGwei, gweiDecimals)
+	maxGasPrice, gasTipCap := gasPriceWithCap(
+		gasLimit, maxGasPriceGwei, gasTipMultiplier*gasTipCapGwei, account.MaxGasFee)
 
 	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
 	if err != nil {
@@ -321,10 +321,20 @@ func toTokenAddress(token string, weth string) common.Address {
 	return common.HexToAddress(token)
 }
 
-func gasPriceWithCap(gasLimit uint64, maxGasPriceGwei float64, maxGasFee *big.Int) *big.Int {
-	if maxGasFee == nil {
-		return convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+func gasPriceWithCap(
+	gasLimit uint64, maxGasPriceGwei, gasTipCapGwei float64, maxGasFee *big.Int,
+) (*big.Int, *big.Int) {
+	if maxGasFee != nil {
+		maxGasPrice := new(big.Int).Div(maxGasFee, new(big.Int).SetUint64(gasLimit))
+		return maxGasPrice, new(big.Int).Set(maxGasPrice)
 	}
 
-	return new(big.Int).Div(maxGasFee, new(big.Int).SetUint64(gasLimit))
+	if maxGasPriceGwei < gasTipCapGwei {
+		maxGasPriceGwei = gasTipCapGwei
+	}
+
+	maxGasPrice := convert.MustFloatToWei(maxGasPriceGwei, gweiDecimals)
+	gasTipCap := convert.MustFloatToWei(gasTipCapGwei, gweiDecimals)
+
+	return maxGasPrice, gasTipCap
 }
