@@ -21,20 +21,21 @@ type Account struct {
 }
 
 type Config struct {
-	ChainID          int64     `yaml:"chain_id"`
-	NodeRPC          string    `yaml:"node_rpc"`
-	GasPriceEndpoint string    `yaml:"gas_price_endpoint"`
-	KeystoreDir      string    `yaml:"keystore_dir"`
-	RouterAddress    string    `yaml:"router_address"`
-	InputToken       string    `yaml:"input_token"`
-	OutputToken      string    `yaml:"output_token"`
-	FeeTier          int64     `yaml:"fee_tier"`
-	GasTipMultiplier float64   `yaml:"gas_tip_multiplier"`
-	StartTime        time.Time `yaml:"start_time"`
-	GasLimit         int64     `yaml:"gas_limit"`
-	MinReturnAmount  *big.Int  `yaml:"min_return_amount"`
-	Weth             string    `yaml:"weth"`
-	Accounts         []Account `yaml:"accounts"`
+	ChainID           int64     `yaml:"chain_id"`
+	NodeRPC           string    `yaml:"node_rpc"`
+	GasPriceEndpoint  string    `yaml:"gas_price_endpoint"`
+	KeystoreDir       string    `yaml:"keystore_dir"`
+	RouterAddress     string    `yaml:"router_address"`
+	InputToken        string    `yaml:"input_token"`
+	OutputToken       string    `yaml:"output_token"`
+	FeeTier           int64     `yaml:"fee_tier"`
+	GasTipMultiplier  float64   `yaml:"gas_tip_multiplier"`
+	StartTime         time.Time `yaml:"start_time"`
+	GasLimit          int64     `yaml:"gas_limit"`
+	MinReturnAmount   *big.Int  `yaml:"min_return_amount"`
+	Weth              string    `yaml:"weth"`
+	Accounts          []Account `yaml:"accounts"`
+	SkipCheckTxStatus bool      `yaml:"skip_check_tx_status"`
 }
 
 func LoadFromFile(fpath string) (Config, error) {

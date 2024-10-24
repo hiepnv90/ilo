@@ -109,7 +109,7 @@ func makeTrades(cfg config.Config, keystore *keystore.KeyStore) error {
 				ethClient, cacheGasPricer, keystore, big.NewInt(cfg.ChainID), acc,
 				strings.ToLower(cfg.InputToken), strings.ToLower(cfg.OutputToken),
 				cfg.GasTipMultiplier, gasLimit, cfg.MinReturnAmount, big.NewInt(cfg.FeeTier),
-				cfg.RouterAddress, strings.ToLower(cfg.Weth),
+				cfg.RouterAddress, strings.ToLower(cfg.Weth), cfg.SkipCheckTxStatus,
 			)
 			if err != nil {
 				log.Printf("Fail to make trade: account=%+v err=%v", acc, err)
@@ -138,6 +138,7 @@ func makeTrade(
 	feeTier *big.Int,
 	routerAddress string,
 	weth string,
+	skipCheckTxStatus bool,
 ) error {
 	// create a context with timeout 30s
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -209,7 +210,7 @@ func makeTrade(
 	maxGasPrice, gasTipCap := gasPriceWithCap(
 		gasLimit, maxGasPriceGwei, gasTipMultiplier*gasTipCapGwei, account.MaxGasFee)
 
-	nonce, err := ethClient.NonceAt(ctx, accountAddress, nil)
+	nonce, err := ethClient.PendingNonceAt(ctx, accountAddress)
 	if err != nil {
 		log.Printf("Fail to get nonce: error=%v", err)
 		return err
@@ -257,6 +258,12 @@ func makeTrade(
 		return err
 	}
 
+	log.Printf("Successfully submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
+
+	if skipCheckTxStatus {
+		return nil
+	}
+
 	// Wait for transaction to be mined
 	receipt, err := waitForTransactionReceipt(ctx, ethClient, signedTx.Hash(), defaultDeadlineTime)
 	if err != nil {
@@ -269,7 +276,7 @@ func makeTrade(
 		return errors.New("transaction failed")
 	}
 
-	log.Printf("Successfully submit transaction: inputAmount=%v transactionHash=%v", account.InputAmount, signedTx.Hash())
+	log.Printf("Transaction success: hash=%v", signedTx.Hash())
 
 	return nil
 }
