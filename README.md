@@ -23,6 +23,7 @@ gas_tip_multiplier: 1.0
 #gas_limit: 300000 # Call node to estimate gas if omitted.
 #min_return_amount: 7000000000 # 7000 USDC
 weth: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+skip_check_tx_status: false
 accounts:
   - address: "0x0000000000000000000001111111111111111111"
     passphrase: "123456"
