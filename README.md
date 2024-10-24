@@ -13,16 +13,17 @@ Example config file:
 chain_id: 1
 node_rpc: "https://rpc.flashbots.net/fast"
 gas_price_endpoint: "https://gas-api.metaswap.codefi.network/networks/1"
-krystal_api_endpoint: "https://api.krystal.app/ethereum/v2"
 keystore_dir: "keystore"
+router_address: "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45" # Uniswap v3 router address
 input_token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" # ETH
 output_token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" # USDC
-platform_wallet: "0x168E4c3AC8d89B00958B6bE6400B066f0347DDc9" # Krystal Wallet
-slippage_bps: 100 # 1%
+fee_tier: 500 # 0.05%, fee tier of uniswap v3 pool
 gas_tip_multiplier: 1.0
-#start_time: "2024-08-01T00:00:00Z"
-#gas_limit: 500000
-#min_return_amount: 9000000000 # 9000 USDC
+#start_time: "2024-08-01T00:00:00Z" # Run immediately if omitted.
+#gas_limit: 300000 # Call node to estimate gas if omitted.
+#min_return_amount: 7000000000 # 7000 USDC
+weth: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+skip_check_tx_status: false
 accounts:
   - address: "0x0000000000000000000001111111111111111111"
     passphrase: "123456"
@@ -42,3 +43,6 @@ Example keystore file:
 1. Keystore directory contains encrypted private keys and store in json format.
 1. Replace `passphrase` of accounts with correct passphrase to decrypt private keys.
 1. Replace `output_token` to sale token.
+1. Router address is different between chains. For base, the address is `0x2626664c2603336e57b271c5c0b26f421741e481`.
+1. Weth address is different between chains. For base, the address is `0x4200000000000000000000000000000000000006`.
+1. Need to find the correct fee tier for uniswap v3 pool, so the router can find the correct pool for swap.
